@@ -1,0 +1,132 @@
+name: DevSecOps Pipeline
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+env:
+  AWS_REGION: us-east-1
+  IMAGE_NAME: togglemaster-targeting
+
+jobs:
+
+  ci:
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    # =========================
+    # Setup GO
+    # =========================
+
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.22'
+
+    # =========================
+    # Build
+    # =========================
+
+    - name: Build
+      run: go build ./...
+
+    # =========================
+    # Tests
+    # =========================
+
+    - name: Run Tests
+      run: go test ./... -v
+
+    # =========================
+    # Lint
+    # =========================
+
+    - name: GolangCI-Lint
+      uses: golangci/golangci-lint-action@v6
+      with:
+        version: latest
+
+    # =========================
+    # SAST
+    # =========================
+
+    - name: Run Gosec
+      uses: securego/gosec@master
+      with:
+        args: ./...
+
+    # =========================
+    # SCA
+    # =========================
+
+    - name: Trivy Filesystem Scan
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: fs
+        severity: CRITICAL,HIGH
+        exit-code: 1
+
+    # =========================
+    # Configure AWS
+    # =========================
+
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+
+    # =========================
+    # Login ECR
+    # =========================
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    # =========================
+    # Build Docker
+    # =========================
+
+    - name: Build Docker Image
+      run: |
+        docker build \
+          -t $IMAGE_NAME:${{ github.sha }} .
+
+    # =========================
+    # Image Scan
+    # =========================
+
+    - name: Trivy Image Scan
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ env.IMAGE_NAME }}:${{ github.sha }}
+        severity: CRITICAL,HIGH
+        exit-code: 1
+
+    # =========================
+    # Tag Image
+    # =========================
+
+    - name: Tag Docker Image
+      run: |
+        docker tag \
+        $IMAGE_NAME:${{ github.sha }} \
+        ${{ secrets.ECR_REPOSITORY }}:${{ github.sha }}
+
+    # =========================
+    # Push ECR
+    # =========================
+
+    - name: Push Docker Image
+      run: |
+        docker push \
+        ${{ secrets.ECR_REPOSITORY }}:${{ github.sha }}
