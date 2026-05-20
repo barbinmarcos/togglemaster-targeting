@@ -35,14 +35,14 @@ jobs:
     # =========================
 
     - name: Build
-      run: go build ./...
+      run: go build -o app ./cmd/main.go
 
     # =========================
     # Tests
     # =========================
 
     - name: Run Tests
-      run: go test ./... -v
+      run: go test ./...
 
     # =========================
     # Lint
